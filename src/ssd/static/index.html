@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Signed, Sealed, Delivered</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #fafafa; --surface: #fff; --border: #e0e0e0;
+    --text: #1a1a1a; --muted: #666; --accent: #2563eb;
+    --accent-hover: #1d4ed8; --green: #16a34a; --red: #dc2626;
+    --radius: 6px; --mono: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg); color: var(--text); line-height: 1.5;
+  }
+
+  header {
+    padding: 1.5rem 2rem 0; max-width: 1100px; margin: 0 auto;
+  }
+  header h1 { font-size: 1.25rem; font-weight: 600; }
+  header p { color: var(--muted); font-size: 0.85rem; margin-top: 0.25rem; }
+
+  /* Tabs */
+  .tabs {
+    display: flex; gap: 0; border-bottom: 1px solid var(--border);
+    max-width: 1100px; margin: 1rem auto 0; padding: 0 2rem;
+  }
+  .tab-btn {
+    padding: 0.5rem 1.25rem; background: none; border: none;
+    font-size: 0.9rem; color: var(--muted); cursor: pointer;
+    border-bottom: 2px solid transparent; transition: all 0.15s;
+  }
+  .tab-btn:hover { color: var(--text); }
+  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 500; }
+
+  /* Main layout */
+  main { max-width: 1100px; margin: 0 auto; padding: 1.5rem 2rem 3rem; }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+  @media (max-width: 700px) { .tab-panel.active { grid-template-columns: 1fr; } }
+
+  /* Form side */
+  .form-col, .result-col {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 1.25rem;
+  }
+  .form-col h2, .result-col h2 { font-size: 0.95rem; margin-bottom: 1rem; }
+  label { display: block; font-size: 0.8rem; font-weight: 500; margin-bottom: 0.3rem; color: var(--muted); }
+  textarea, input[type="text"] {
+    width: 100%; padding: 0.5rem 0.65rem; border: 1px solid var(--border);
+    border-radius: var(--radius); font-size: 0.85rem; font-family: inherit;
+    resize: vertical; background: var(--bg);
+  }
+  textarea:focus, input[type="text"]:focus { outline: none; border-color: var(--accent); }
+  textarea { min-height: 120px; }
+  .field { margin-bottom: 1rem; }
+
+  button.submit {
+    padding: 0.5rem 1.25rem; background: var(--accent); color: #fff;
+    border: none; border-radius: var(--radius); font-size: 0.85rem;
+    cursor: pointer; font-weight: 500; transition: background 0.15s;
+  }
+  button.submit:hover { background: var(--accent-hover); }
+  button.submit:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* Result side */
+  .result-col { position: relative; }
+  .result-placeholder { color: var(--muted); font-size: 0.85rem; font-style: italic; }
+  .error-msg { color: var(--red); font-size: 0.85rem; white-space: pre-wrap; }
+
+  /* Spinner */
+  .spinner {
+    display: none; width: 20px; height: 20px;
+    border: 2px solid var(--border); border-top-color: var(--accent);
+    border-radius: 50%; animation: spin 0.6s linear infinite;
+    position: absolute; top: 1.25rem; right: 1.25rem;
+  }
+  .spinner.visible { display: block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Formatted output */
+  pre.json {
+    font-family: var(--mono); font-size: 0.78rem; line-height: 1.6;
+    background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 0.75rem; overflow-x: auto; white-space: pre-wrap; word-break: break-word;
+  }
+  .hash { font-family: var(--mono); font-size: 0.82rem; word-break: break-all; }
+  .generated-text {
+    font-size: 0.88rem; line-height: 1.7; white-space: pre-wrap; margin-bottom: 1rem;
+  }
+  .sig-block { font-family: var(--mono); font-size: 0.78rem; color: var(--muted); }
+
+  /* Confidence bar */
+  .confidence-wrap { margin-top: 1rem; }
+  .confidence-label { font-size: 0.8rem; font-weight: 500; margin-bottom: 0.3rem; }
+  .confidence-bar {
+    height: 8px; border-radius: 4px; background: var(--border); overflow: hidden;
+  }
+  .confidence-fill {
+    height: 100%; border-radius: 4px; transition: width 0.4s ease;
+  }
+  .match-badge {
+    display: inline-block; padding: 0.15rem 0.6rem; border-radius: 3px;
+    font-size: 0.8rem; font-weight: 600; margin-bottom: 0.75rem;
+  }
+  .match-badge.yes { background: #dcfce7; color: var(--green); }
+  .match-badge.no { background: #fee2e2; color: var(--red); }
+
+  /* API key */
+  .api-key-row {
+    max-width: 1100px; margin: 0.75rem auto 0; padding: 0 2rem;
+    display: flex; align-items: center; gap: 0.5rem;
+  }
+  .api-key-row label { margin: 0; white-space: nowrap; }
+  .api-key-row input {
+    max-width: 320px; font-family: var(--mono); font-size: 0.8rem;
+  }
+  .api-key-hint { font-size: 0.75rem; color: var(--muted); }
+
+  .section-label {
+    font-size: 0.8rem; font-weight: 600; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.04em; margin: 1rem 0 0.4rem;
+  }
+  .section-label:first-child { margin-top: 0; }
+
+  /* Toggle link for collapsible sample */
+  .toggle-link {
+    font-size: 0.8rem; color: var(--accent); cursor: pointer;
+    text-decoration: none; display: inline-block; margin-bottom: 0.5rem;
+  }
+  .toggle-link:hover { text-decoration: underline; }
+  .collapsible { display: none; }
+  .collapsible.open { display: block; }
+
+  /* Hash input field */
+  input.hash-input {
+    font-family: var(--mono); font-size: 0.82rem;
+  }
+
+  /* Inline or helper */
+  .or-divider {
+    font-size: 0.75rem; color: var(--muted); text-align: center;
+    margin: 0.5rem 0; text-transform: uppercase; letter-spacing: 0.05em;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Signed, Sealed, Delivered</h1>
+  <p>Stylometric identity — extract writing style, transfer it, and embed verifiable signatures.</p>
+</header>
+
+<div class="api-key-row">
+  <label for="apiKey">API Key</label>
+  <input type="text" id="apiKey" placeholder="sk-ant-..." autocomplete="off">
+  <span class="api-key-hint">Optional. Stored locally, used only for /generate.</span>
+</div>
+
+<nav class="tabs">
+  <button class="tab-btn active" data-tab="analyze">Analyze</button>
+  <button class="tab-btn" data-tab="generate">Generate</button>
+  <button class="tab-btn" data-tab="verify">Verify</button>
+</nav>
+
+<main>
+  <!-- ANALYZE -->
+  <div class="tab-panel active" id="panel-analyze">
+    <div class="form-col">
+      <h2>Analyze Writing Style</h2>
+      <div class="field">
+        <label for="analyze-sample">Writing Sample</label>
+        <textarea id="analyze-sample" placeholder="Paste a writing sample (min 50 characters)..." rows="10"></textarea>
+      </div>
+      <button class="submit" id="analyze-btn">Analyze</button>
+    </div>
+    <div class="result-col">
+      <h2>Results</h2>
+      <div class="spinner" id="analyze-spinner"></div>
+      <div id="analyze-result"><p class="result-placeholder">Submit a sample to see style analysis.</p></div>
+    </div>
+  </div>
+
+  <!-- GENERATE -->
+  <div class="tab-panel" id="panel-generate">
+    <div class="form-col">
+      <h2>Generate Styled Text</h2>
+      <div class="field">
+        <label for="generate-hash">Style Hash</label>
+        <input type="text" id="generate-hash" class="hash-input" placeholder="Paste hash from Analyze tab...">
+      </div>
+      <a class="toggle-link" onclick="this.nextElementSibling.classList.toggle('open')">Or use a writing sample instead</a>
+      <div class="collapsible">
+        <div class="field">
+          <label for="generate-sample">Writing Sample</label>
+          <textarea id="generate-sample" placeholder="Paste a writing sample (min 50 characters)..." rows="5"></textarea>
+        </div>
+      </div>
+      <div class="field">
+        <label for="generate-author">Author Name</label>
+        <input type="text" id="generate-author" placeholder="e.g. Ernest Hemingway (optional)">
+      </div>
+      <div class="field">
+        <label for="generate-prompt">Topic / Prompt</label>
+        <textarea id="generate-prompt" placeholder="What should the generated text be about?" rows="3"></textarea>
+      </div>
+      <button class="submit" id="generate-btn">Generate</button>
+    </div>
+    <div class="result-col">
+      <h2>Results</h2>
+      <div class="spinner" id="generate-spinner"></div>
+      <div id="generate-result"><p class="result-placeholder">Provide a style hash (or sample) and prompt to generate styled text.</p></div>
+    </div>
+  </div>
+
+  <!-- VERIFY -->
+  <div class="tab-panel" id="panel-verify">
+    <div class="form-col">
+      <h2>Verify Authorship</h2>
+      <div class="field">
+        <label for="verify-text">Generated Text</label>
+        <textarea id="verify-text" placeholder="Paste the generated text to verify..." rows="6"></textarea>
+      </div>
+      <div class="field">
+        <label for="verify-hash">Style Hash</label>
+        <input type="text" id="verify-hash" class="hash-input" placeholder="Paste hash from Analyze tab...">
+      </div>
+      <a class="toggle-link" onclick="this.nextElementSibling.classList.toggle('open')">Or use a writing sample instead</a>
+      <div class="collapsible">
+        <div class="field">
+          <label for="verify-sample">Original Writing Sample</label>
+          <textarea id="verify-sample" placeholder="Paste the original author's writing sample..." rows="5"></textarea>
+        </div>
+      </div>
+      <button class="submit" id="verify-btn">Verify</button>
+    </div>
+    <div class="result-col">
+      <h2>Results</h2>
+      <div class="spinner" id="verify-spinner"></div>
+      <div id="verify-result"><p class="result-placeholder">Submit text and a style hash (or sample) to verify authorship.</p></div>
+    </div>
+  </div>
+</main>
+
+<script>
+  // --- Tab switching ---
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById('panel-' + btn.dataset.tab).classList.add('active');
+    });
+  });
+
+  // --- API Key persistence ---
+  const apiKeyInput = document.getElementById('apiKey');
+  apiKeyInput.value = localStorage.getItem('ssd_api_key') || '';
+  apiKeyInput.addEventListener('input', () => {
+    localStorage.setItem('ssd_api_key', apiKeyInput.value);
+  });
+
+  // --- Helpers ---
+  function showSpinner(id) { document.getElementById(id).classList.add('visible'); }
+  function hideSpinner(id) { document.getElementById(id).classList.remove('visible'); }
+
+  async function apiCall(endpoint, body, resultEl, spinnerId, renderFn) {
+    const btn = document.querySelector(`#panel-${endpoint} .submit`);
+    btn.disabled = true;
+    resultEl.innerHTML = '';
+    showSpinner(spinnerId);
+    try {
+      const res = await fetch('/' + endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }));
+        throw new Error(err.detail || JSON.stringify(err));
+      }
+      const data = await res.json();
+      renderFn(data, resultEl);
+    } catch (e) {
+      resultEl.innerHTML = `<p class="error-msg">Error: ${escapeHtml(e.message)}</p>`;
+    } finally {
+      hideSpinner(spinnerId);
+      btn.disabled = false;
+    }
+  }
+
+  function escapeHtml(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // --- Analyze ---
+  document.getElementById('analyze-btn').addEventListener('click', () => {
+    const sample = document.getElementById('analyze-sample').value;
+    apiCall('analyze', { sample }, document.getElementById('analyze-result'), 'analyze-spinner', (data, el) => {
+      // Auto-fill hash fields on other tabs
+      document.getElementById('generate-hash').value = data.style_hash;
+      document.getElementById('verify-hash').value = data.style_hash;
+
+      el.innerHTML = `
+        <p class="section-label">Style Hash</p>
+        <p class="hash">${escapeHtml(data.style_hash)}</p>
+        <p style="font-size:0.75rem; color:var(--muted); margin-top:0.25rem;">Auto-filled on Generate and Verify tabs.</p>
+        <p class="section-label">Style Description</p>
+        <p style="font-size:0.85rem; line-height:1.6; white-space:pre-wrap;">${escapeHtml(data.style_description)}</p>
+        <p class="section-label">Style Profile</p>
+        <pre class="json">${escapeHtml(JSON.stringify(data.style_profile, null, 2))}</pre>
+      `;
+    });
+  });
+
+  // --- Generate ---
+  document.getElementById('generate-btn').addEventListener('click', () => {
+    const hash = document.getElementById('generate-hash').value.trim();
+    const sample = document.getElementById('generate-sample').value.trim();
+    const prompt = document.getElementById('generate-prompt').value;
+    const author = document.getElementById('generate-author').value.trim();
+
+    const body = { prompt };
+    if (hash) body.style_hash = hash;
+    else if (sample) body.sample = sample;
+    if (author) body.author = author;
+    const key = apiKeyInput.value.trim();
+    if (key) body.api_key = key;
+
+    apiCall('generate', body, document.getElementById('generate-result'), 'generate-spinner', (data, el) => {
+      // Split on the --- block; handle Author line if present
+      const sigIdx = data.text.lastIndexOf('\n---\n');
+      const mainText = sigIdx >= 0 ? data.text.slice(0, sigIdx) : data.text;
+      const sigBlock = sigIdx >= 0 ? data.text.slice(sigIdx + 5) : '';
+
+      el.innerHTML = `
+        <p class="section-label">Generated Text</p>
+        <div class="generated-text">${escapeHtml(mainText)}</div>
+        <p class="section-label">Signature Block</p>
+        <p class="sig-block">${escapeHtml(sigBlock)}</p>
+        <p class="section-label">Style Profile</p>
+        <pre class="json">${escapeHtml(JSON.stringify(data.style_profile, null, 2))}</pre>
+      `;
+    });
+  });
+
+  // --- Verify ---
+  document.getElementById('verify-btn').addEventListener('click', () => {
+    const text = document.getElementById('verify-text').value;
+    const hash = document.getElementById('verify-hash').value.trim();
+    const sample = document.getElementById('verify-sample').value.trim();
+
+    const body = { text };
+    if (hash) body.style_hash = hash;
+    else if (sample) body.sample = sample;
+
+    apiCall('verify', body, document.getElementById('verify-result'), 'verify-spinner', (data, el) => {
+      const pct = Math.round(data.confidence * 100);
+      const color = data.match ? 'var(--green)' : 'var(--red)';
+      el.innerHTML = `
+        <span class="match-badge ${data.match ? 'yes' : 'no'}">${data.match ? 'Match' : 'No Match'}</span>
+        <div class="confidence-wrap">
+          <p class="confidence-label">Confidence: ${pct}%</p>
+          <div class="confidence-bar">
+            <div class="confidence-fill" style="width:${pct}%; background:${color};"></div>
+          </div>
+        </div>
+        <p class="section-label">Extracted Hash</p>
+        <p class="hash">${escapeHtml(data.extracted_hash)}</p>
+        <p class="section-label">Expected Hash</p>
+        <p class="hash">${escapeHtml(data.expected_hash)}</p>
+      `;
+    });
+  });
+</script>
+</body>
+</html>
