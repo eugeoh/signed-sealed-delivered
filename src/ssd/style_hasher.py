@@ -56,15 +56,19 @@ def quantize_profile(profile: StyleProfile, num_bins: int = 8) -> list[int]:
     return bins
 
 
-def compute_style_hash(profile: StyleProfile, hash_bits: int = 64) -> bytes:
-    """Produce a deterministic hash of the style profile.
+def compute_style_hash(
+    profile: StyleProfile, hash_bits: int = 64, name: str | None = None
+) -> bytes:
+    """Produce a deterministic hash of the style profile and optional author name.
 
     Quantizes the profile, builds a canonical byte string from the bin
-    indices, SHA-256 hashes it, and returns the first ``hash_bits // 8``
-    bytes.
+    indices (prefixed with the normalised name when provided), SHA-256
+    hashes it, and returns the first ``hash_bits // 8`` bytes.
     """
     bins = quantize_profile(profile)
     canonical = bytes(bins)
+    if name:
+        canonical = name.strip().lower().encode("utf-8") + b":" + canonical
     digest = hashlib.sha256(canonical).digest()
     return digest[: hash_bits // 8]
 
@@ -78,7 +82,7 @@ def style_hash_to_bits(hash_bytes: bytes) -> list[int]:
     return bits
 
 
-def style_signature(profile: StyleProfile) -> str:
+def style_signature(profile: StyleProfile, name: str | None = None) -> str:
     """Return a human-readable base58 style signature."""
-    hash_bytes = compute_style_hash(profile)
+    hash_bytes = compute_style_hash(profile, name=name)
     return base58.b58encode(hash_bytes).decode("ascii")

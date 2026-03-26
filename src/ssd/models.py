@@ -143,6 +143,7 @@ class VerifyResponse(BaseModel):
 
 class AnalyzeRequest(BaseModel):
     sample: str = Field(..., min_length=50, description="Writing sample to analyze")
+    name: str | None = Field(default=None, description="Author name (included in hash computation)")
 
 
 class AnalyzeResponse(BaseModel):

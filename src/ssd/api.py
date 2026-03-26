@@ -56,25 +56,23 @@ async def root():
 
 _default_client: anthropic.Anthropic | None = None
 
-# In-memory cache: style_hash (base58) -> (StyleProfile, style_description)
-_profile_cache: dict[str, tuple[object, str]] = {}
+# In-memory cache: style_hash (base58) -> (StyleProfile, style_description, name)
+_profile_cache: dict[str, tuple[object, str, str | None]] = {}
 
 
 def _resolve_profile(
-    sample: str | None, style_hash: str | None
+    sample: str | None, style_hash: str | None, name: str | None = None
 ) -> tuple:
-    """Return (profile, sig, description) from either a sample or a cached hash."""
-    from ssd.models import StyleProfile
-
+    """Return (profile, sig, description, name) from either a sample or a cached hash."""
     if style_hash and style_hash in _profile_cache:
-        profile, description = _profile_cache[style_hash]
-        return profile, style_hash, description
+        profile, description, cached_name = _profile_cache[style_hash]
+        return profile, style_hash, description, cached_name
     if sample:
         profile = extract_style(sample)
-        sig = style_signature(profile)
+        sig = style_signature(profile, name=name)
         description = compose_style_prompt(profile)
-        _profile_cache[sig] = (profile, description)
-        return profile, sig, description
+        _profile_cache[sig] = (profile, description, name)
+        return profile, sig, description, name
     if style_hash:
         raise HTTPException(
             status_code=404,
@@ -104,9 +102,9 @@ def _get_client(api_key: str | None = None) -> anthropic.Anthropic:
 async def analyze(req: AnalyzeRequest) -> AnalyzeResponse:
     """Extract style profile, hash, and description from a writing sample."""
     profile = extract_style(req.sample)
-    sig = style_signature(profile)
+    sig = style_signature(profile, name=req.name)
     description = compose_style_prompt(profile)
-    _profile_cache[sig] = (profile, description)
+    _profile_cache[sig] = (profile, description, req.name)
     return AnalyzeResponse(
         style_profile=profile.to_dict(),
         style_hash=sig,
@@ -121,7 +119,8 @@ async def analyze(req: AnalyzeRequest) -> AnalyzeResponse:
 @app.post("/generate", response_model=GenerateResponse)
 async def generate(req: GenerateRequest) -> GenerateResponse:
     """Generate styled text with an embedded steganographic signature."""
-    profile, sig, _desc = _resolve_profile(req.sample, req.style_hash)
+    profile, sig, _desc, cached_name = _resolve_profile(req.sample, req.style_hash, name=req.author)
+    author = req.author or cached_name
     full_prompt = compose_full_prompt(profile, req.prompt)
 
     # Call the Anthropic API
@@ -138,14 +137,14 @@ async def generate(req: GenerateRequest) -> GenerateResponse:
     raw_text = message.content[0].text
 
     # Embed the style hash steganographically
-    hash_bytes = compute_style_hash(profile)
+    hash_bytes = compute_style_hash(profile, name=author)
     hash_bits = style_hash_to_bits(hash_bytes)
     stego_text = encode(raw_text, hash_bits)
 
     # Append a visible signature block
     sig_lines = []
-    if req.author:
-        sig_lines.append(f"Author: {req.author}")
+    if author:
+        sig_lines.append(f"Author: {author}")
     sig_lines.append(f"Style-Signature: {sig}")
     output_text = f"{stego_text}\n\n---\n" + "\n".join(sig_lines)
 
@@ -163,8 +162,8 @@ async def generate(req: GenerateRequest) -> GenerateResponse:
 @app.post("/verify", response_model=VerifyResponse)
 async def verify_endpoint(req: VerifyRequest) -> VerifyResponse:
     """Verify that text contains the steganographic signature of a claimed author."""
-    profile, _sig, _desc = _resolve_profile(req.sample, req.style_hash)
-    hash_bytes = compute_style_hash(profile)
+    profile, _sig, _desc, cached_name = _resolve_profile(req.sample, req.style_hash)
+    hash_bytes = compute_style_hash(profile, name=cached_name)
     expected_bits = style_hash_to_bits(hash_bytes)
 
     # Strip the appended signature block before decoding
